@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScreenCast — Compartilhamento de Tela Simples</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS para sinalização e conexões WebRTC P2P -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- Fonte Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        zinc: {
+                            850: '#1f1f23',
+                            925: '#111113',
+                            950: '#09090b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Ocultar barras de rolagem desnecessárias e garantir ajuste perfeito do vídeo */
+        body {
+            background-color: #09090b;
+            color: #f4f4f5;
+            overflow-x: hidden;
+        }
+        video::-webkit-media-controls-panel {
+            background-image: linear-gradient(transparent, rgba(0,0,0,0.7));
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between antialiased selection:bg-indigo-500 selection:text-white">
+
+    <!-- Notificação Toast Flutuante (Substitui alert()) -->
+    <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+    <!-- Cabeçalho Minimalista -->
+    <header class="w-full border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-30">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/20">
+                    <!-- Ícone de Tela -->
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                        <line x1="8" y1="21" x2="16" y2="21"></line>
+                        <line x1="12" y1="17" x2="12" y2="21"></line>
+                    </svg>
+                </div>
+                <span class="font-bold text-lg tracking-tight text-zinc-100">ScreenCast</span>
+            </div>
+
+            <!-- Badge de Status Global -->
+            <div id="global-status-badge" class="hidden items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-medium text-zinc-300">
+                <span id="status-dot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span id="status-text">Conectado</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Conteúdo Principal -->
+    <main class="flex-grow flex items-center justify-center p-4 sm:p-6">
+        
+        <!-- TELA 1: INÍCIO (Criar ou Entrar) -->
+        <div id="home-view" class="w-full max-w-3xl transition-all duration-300">
+            <div class="text-center mb-10">
+                <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white mb-3">
+                    Compartilhamento de tela direto e sem distrações.
+                </h1>
+                <p class="text-zinc-400 text-base sm:text-lg max-w-xl mx-auto">
+                    Inicie uma transmissão instantânea com um clique ou insira o código de uma sala para assistir em tempo real.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Card 1: Criar Sala / Transmitir -->
+                <div class="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 sm:p-8 flex flex-col justify-between hover:border-zinc-700 transition-colors shadow-xl">
+                    <div>
+                        <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-5">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                        </div>
+                        <h2 class="text-xl font-semibold text-white mb-2">Transmitir minha tela</h2>
+                        <p class="text-zinc-400 text-sm leading-relaxed mb-6">
+                            Escolha uma janela, guia ou tela inteira. Um código único será gerado para que outras pessoas possam assistir.
+                        </p>
+                    </div>
+                    
+                    <button id="btn-start-share" onclick="startHosting()" class="w-full py-3.5 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-medium text-sm sm:text-base transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 cursor-pointer">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                        <span>Criar Sala e Compartilhar Tela</span>
+                    </button>
+                </div>
+
+                <!-- Card 2: Entrar em uma Sala -->
+                <div class="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 sm:p-8 flex flex-col justify-between hover:border-zinc-700 transition-colors shadow-xl">
+                    <div>
+                        <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-5">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </div>
+                        <h2 class="text-xl font-semibold text-white mb-2">Entrar em uma Sala</h2>
+                        <p class="text-zinc-400 text-sm leading-relaxed mb-5">
+                            Digite o código compartilhado pelo apresentador para visualizar a tela ao vivo.
+                        </p>
+                    </div>
+
+                    <form onsubmit="handleJoinSubmit(event)" class="flex flex-col gap-3">
+                        <input 
+                            type="text" 
+                            id="room-code-input" 
+                            placeholder="Ex: A7B-92X" 
+                            maxlength="12"
+                            autocomplete="off"
+                            required
+                            class="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-white placeholder-zinc-600 font-mono text-center uppercase tracking-widest text-base outline-none transition-all"
+                        >
+                        <button type="submit" id="btn-join-room" class="w-full py-3.5 px-5 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-800 text-white font-medium text-sm sm:text-base transition-all flex items-center justify-center gap-2 border border-zinc-700 cursor-pointer">
+                            <span>Assistir</span>
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                            </svg>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- TELA 2: SALA ATIVA (Transmissão ou Visualização) -->
+        <div id="room-view" class="hidden w-full max-w-6xl flex-col gap-4">
+            
+            <!-- Barra de Controles Superiores da Sala -->
+            <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 sm:px-5 sm:py-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+                
+                <!-- Código da Sala e Botão Copiar -->
+                <div class="flex items-center gap-3">
+                    <div class="flex flex-col">
+                        <span class="text-[11px] uppercase tracking-wider text-zinc-500 font-semibold">Código da Sala</span>
+                        <div class="flex items-center gap-2">
+                            <span id="display-room-code" class="font-mono font-bold text-lg sm:text-xl text-white tracking-wider">---</span>
+                            <button onclick="copyRoomCode()" id="btn-copy-code" title="Copiar código da sala" class="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium px-2.5 cursor-pointer">
+                                <svg id="icon-copy" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                                <span id="text-copy">Copiar</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Informações da Chamada (Espectadores & Controles) -->
+                <div class="flex items-center gap-2 sm:gap-3 ml-auto">
+                    <!-- Contador de Espectadores (Visível principalmente para o Host) -->
+                    <div id="viewers-counter-box" class="hidden items-center gap-2 px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 text-xs sm:text-sm font-medium">
+                        <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        <span><strong id="viewers-count" class="text-white">0</strong> assistindo</span>
+                    </div>
+
+                    <!-- Botão Tela Cheia -->
+                    <button onclick="toggleFullscreen()" class="p-2.5 sm:px-3.5 sm:py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs sm:text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer" title="Tela Cheia">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                        <span class="hidden sm:inline">Tela Cheia</span>
+                    </button>
+
+                    <!-- Botão Encerrar / Sair -->
+                    <button onclick="leaveRoom()" id="btn-leave-room" class="px-3.5 py-2 sm:px-4 sm:py-2 rounded-xl bg-rose-600/90 hover:bg-rose-600 text-white text-xs sm:text-sm font-medium transition-colors flex items-center gap-2 shadow-lg shadow-rose-600/20 cursor-pointer">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                        <span id="text-leave-btn">Encerrar</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Container do Player de Vídeo -->
+            <div id="video-wrapper" class="relative w-full aspect-video bg-zinc-950 rounded-2xl border border-zinc-800 overflow-hidden shadow-2xl flex items-center justify-center group">
+                
+                <!-- Elemento de Vídeo -->
+                <video id="screen-video" class="w-full h-full object-contain bg-black" autoplay playsinline></video>
+
+                <!-- Overlay de Carregamento / Aguardando Transmissão -->
+                <div id="video-overlay" class="absolute inset-0 bg-zinc-950/90 flex flex-col items-center justify-center p-6 text-center z-10">
+                    <div class="w-12 h-12 border-4 border-zinc-800 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+                    <h3 id="overlay-title" class="text-lg font-semibold text-white mb-1">Conectando à sala...</h3>
+                    <p id="overlay-subtitle" class="text-sm text-zinc-400 max-w-md">Estabelecendo conexão direta ponto-a-ponto com o apresentador.</p>
+                </div>
+
+                <!-- Botão de Ativar Som (caso o navegador bloqueie autoplay com áudio) -->
+                <button id="btn-unmute" onclick="unmuteVideo()" class="hidden absolute bottom-5 left-1/2 -translate-x-1/2 z-20 px-4 py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium shadow-xl flex items-center gap-2 animate-bounce cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                    </svg>
+                    <span>Clique para ativar o áudio da transmissão</span>
+                </button>
+            </div>
+            
+            <!-- Dica discreta abaixo do vídeo -->
+            <p id="room-footer-hint" class="text-center text-xs text-zinc-500 mt-1">
+                Compartilhe o código acima com quem deseja que assista à sua tela.
+            </p>
+        </div>
+
+    </main>
+
+    <!-- Rodapé Discreto -->
+    <footer class="w-full py-4 text-center text-xs text-zinc-600">
+        Transmissão P2P criptografada diretamente entre navegadores via WebRTC.
+    </footer>
+
+    <!-- Lógica da Aplicação -->
+    <script>
+        // Prefixo exclusivo para evitar colisões no servidor público do PeerJS
+        const PEER_PREFIX = 'screencast-br-v1-';
+
+        // Estado global da aplicação
+        let peer = null;
+        let localStream = null;
+        let currentRoomCode = '';
+        let isHost = false;
+        let activeViewers = new Map(); // Armazena conexões de dados dos espectadores (Host)
+        let hostDataConnection = null; // Conexão de dados com o Host (Viewer)
+        let currentMediaCall = null;   // Chamada de mídia ativa (Viewer)
+
+        // Elementos do DOM
+        const homeView = document.getElementById('home-view');
+        const roomView = document.getElementById('room-view');
+        const videoElement = document.getElementById('screen-video');
+        const videoWrapper = document.getElementById('video-wrapper');
+        const videoOverlay = document.getElementById('video-overlay');
+        const overlayTitle = document.getElementById('overlay-title');
+        const overlaySubtitle = document.getElementById('overlay-subtitle');
+        const globalStatusBadge = document.getElementById('global-status-badge');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+
+        /**
+         * Exibe uma notificação amigável na tela (substitui alert)
+         */
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            const colors = {
+                info: 'bg-zinc-900 border-zinc-700 text-zinc-100',
+                success: 'bg-emerald-950/95 border-emerald-700/70 text-emerald-100',
+                error: 'bg-rose-950/95 border-rose-700/70 text-rose-100',
+                warning: 'bg-amber-950/95 border-amber-700/70 text-amber-100'
+            };
+
+            const icons = {
+                info: `<svg class="w-5 h-5 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+                success: `<svg class="w-5 h-5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`,
+                error: `<svg class="w-5 h-5 text-rose-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+                warning: `<svg class="w-5 h-5 text-amber-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>`
+            };
+
+            toast.className = `pointer-events-auto flex items-center gap-3 px-4 py-3.5 rounded-xl border shadow-2xl backdrop-blur-md text-sm font-medium transition-all duration-300 transform translate-y-0 opacity-100 ${colors[type] || colors.info}`;
+            toast.innerHTML = `${icons[type] || icons.info}<span>${message}</span>`;
+            
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', '-translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 4500);
+        }
+
+        /**
+         * Gera um código de sala curto e fácil de digitar (ex: K8P-4M2)
+         */
+        function generateRoomCode() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Sem I, O, 0, 1 para evitar confusão visual
+            let part1 = '';
+            let part2 = '';
+            for (let i = 0; i < 3; i++) {
+                part1 += chars.charAt(Math.floor(Math.random() * chars.length));
+                part2 += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return `${part1}-${part2}`;
+        }
+
+        /**
+         * Atualiza o indicador de status no cabeçalho
+         */
+        function updateStatusBadge(text, color = 'emerald') {
+            globalStatusBadge.classList.remove('hidden');
+            globalStatusBadge.classList.add('flex');
+            statusText.textContent = text;
+            
+            statusDot.className = 'w-2 h-2 rounded-full';
+            if (color === 'emerald') {
+                statusDot.classList.add('bg-emerald-500', 'animate-pulse');
+            } else if (color === 'rose') {
+                statusDot.classList.add('bg-rose-500', 'animate-pulse');
+            } else if (color === 'amber') {
+                statusDot.classList.add('bg-amber-500', 'animate-pulse');
+            } else {
+                statusDot.classList.add('bg-zinc-500');
+            }
+        }
+
+        /**
+         * Alterna a interface entre a tela inicial e a sala ativa
+         */
+        function switchToRoomUI(code, hostMode) {
+            currentRoomCode = code;
+            isHost = hostMode;
+
+            homeView.classList.add('hidden');
+            roomView.classList.remove('hidden');
+            roomView.classList.add('flex');
+
+            document.getElementById('display-room-code').textContent = code;
+            document.getElementById('text-leave-btn').textContent = hostMode ? 'Encerrar Transmissão' : 'Sair da Sala';
+            
+            const viewersCounterBox = document.getElementById('viewers-counter-box');
+            const roomFooterHint = document.getElementById('room-footer-hint');
+
+            if (hostMode) {
+                viewersCounterBox.classList.remove('hidden');
+                viewersCounterBox.classList.add('flex');
+                roomFooterHint.textContent = 'Você está compartilhando sua tela. Compartilhe o código acima para que outros assistam.';
+            } else {
+                viewersCounterBox.classList.add('hidden');
+                viewersCounterBox.classList.remove('flex');
+                roomFooterHint.textContent = 'Você está assistindo a uma transmissão ao vivo.';
+            }
+        }
+
+        /**
+         * =====================================================================
+         * FLUXO 1: CRIAR SALA E COMPARTILHAR TELA (HOST / APRESENTADOR)
+         * =====================================================================
+         */
+        async function startHosting() {
+            // Verifica suporte do navegador
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                showToast('Seu navegador ou dispositivo não suporta compartilhamento de tela.', 'error');
+                return;
+            }
+
+            const btnStart = document.getElementById('btn-start-share');
+            btnStart.disabled = true;
+            btnStart.classList.add('opacity-70');
+
+            try {
+                // Solicita captura de tela (com áudio do sistema se disponível)
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        cursor: 'always',
+                        frameRate: { ideal: 30, max: 60 }
+                    },
+                    audio: true
+                });
+
+                // Detecta quando o usuário clica em "Parar compartilhamento" na barra nativa do navegador
+                const videoTrack = localStream.getVideoTracks()[0];
+                videoTrack.onended = () => {
+                    showToast('Compartilhamento de tela encerrado pelo navegador.', 'info');
+                    leaveRoom();
+                };
+
+                const code = generateRoomCode();
+                const peerId = PEER_PREFIX + code;
+
+                // Inicializa PeerJS como Host
+                peer = new Peer(peerId, {
+                    debug: 1
+                });
+
+                peer.on('open', (id) => {
+                    switchToRoomUI(code, true);
+                    updateStatusBadge('Transmitindo ao vivo', 'rose');
+                    
+                    // Exibe pré-visualização local mutada para evitar eco
+                    videoOverlay.classList.add('hidden');
+                    videoElement.srcObject = localStream;
+                    videoElement.muted = true;
+                    videoElement.play().catch(() => {});
+
+                    showToast('Sala criada! Compartilhe o código para convidar pessoas.', 'success');
+                });
+
+                // Quando um espectador se conecta via canal de dados para solicitar o stream
+                peer.on('connection', (conn) => {
+                    conn.on('open', () => {
+                        activeViewers.set(conn.peer, conn);
+                        updateViewersCounter();
+
+                        // Inicia a chamada de vídeo enviando a tela capturada para o espectador
+                        const call = peer.call(conn.peer, localStream);
+                        
+                        call.on('close', () => {
+                            removeViewer(conn.peer);
+                        });
+                        call.on('error', () => {
+                            removeViewer(conn.peer);
+                        });
+                    });
+
+                    conn.on('close', () => {
+                        removeViewer(conn.peer);
+                    });
+                });
+
+                peer.on('error', (err) => {
+                    console.error('Erro PeerJS (Host):', err);
+                    if (err.type === 'unavailable-id') {
+                        // Caso raro de colisão de código, tenta novamente
+                        leaveRoom();
+                        showToast('Erro ao gerar código único. Tente novamente.', 'error');
+                    } else {
+                        showToast('Erro de conexão com o servidor de sinalização.', 'error');
+                    }
+                });
+
+            } catch (err) {
+                console.warn('Captura cancelada ou negada:', err);
+                if (err.name === 'NotAllowedError') {
+                    showToast('Permissão para compartilhar a tela foi negada ou cancelada.', 'warning');
+                } else {
+                    showToast('Não foi possível iniciar a captura de tela.', 'error');
+                }
+            } finally {
+                btnStart.disabled = false;
+                btnStart.classList.remove('opacity-70');
+            }
+        }
+
+        function removeViewer(viewerPeerId) {
+            if (activeViewers.has(viewerPeerId)) {
+                activeViewers.delete(viewerPeerId);
+                updateViewersCounter();
+            }
+        }
+
+        function updateViewersCounter() {
+            document.getElementById('viewers-count').textContent = activeViewers.size;
+        }
+
+        /**
+         * =====================================================================
+         * FLUXO 2: ENTRAR EM UMA SALA E ASSISTIR (VIEWER / ESPECTADOR)
+         * =====================================================================
+         */
+        function handleJoinSubmit(event) {
+            event.preventDefault();
+            const input = document.getElementById('room-code-input');
+            const rawCode = input.value.trim().toUpperCase();
+
+            if (!rawCode) {
+                showToast('Por favor, digite o código da sala.', 'warning');
+                return;
+            }
+
+            joinRoom(rawCode);
+        }
+
+        function joinRoom(code) {
+            const btnJoin = document.getElementById('btn-join-room');
+            btnJoin.disabled = true;
+            btnJoin.classList.add('opacity-70');
+
+            switchToRoomUI(code, false);
+            updateStatusBadge('Conectando...', 'amber');
+            
+            videoOverlay.classList.remove('hidden');
+            overlayTitle.textContent = 'Conectando à sala...';
+            overlaySubtitle.textContent = `Buscando transmissão para o código ${code}...`;
+
+            // Cria um Peer anônimo para o espectador
+            peer = new Peer({
+                debug: 1
+            });
+
+            let connectionTimeout = setTimeout(() => {
+                if (!currentMediaCall) {
+                    showToast('Sala não encontrada ou o apresentador não está respondendo.', 'error');
+                    leaveRoom();
+                }
+            }, 12000);
+
+            peer.on('open', () => {
+                const hostPeerId = PEER_PREFIX + code;
+                
+                // Conecta ao canal de dados do Host para avisar que entrou na sala
+                hostDataConnection = peer.connect(hostPeerId, {
+                    reliable: true
+                });
+
+                hostDataConnection.on('open', () => {
+                    overlayTitle.textContent = 'Aguardando transmissão...';
+                    overlaySubtitle.textContent = 'Conectado à sala. O vídeo iniciará em instantes.';
+                });
+
+                hostDataConnection.on('close', () => {
+                    showToast('O apresentador encerrou o compartilhamento de tela.', 'info');
+                    leaveRoom();
+                });
+
+                hostDataConnection.on('error', () => {
+                    clearTimeout(connectionTimeout);
+                    showToast('Não foi possível conectar à sala informada.', 'error');
+                    leaveRoom();
+                });
+            });
+
+            // Recebe a chamada de vídeo (stream da tela) enviada pelo Host
+            peer.on('call', (call) => {
+                clearTimeout(connectionTimeout);
+                currentMediaCall = call;
+                
+                // Responde à chamada sem enviar mídia local (apenas recebe)
+                call.answer();
+
+                call.on('stream', (remoteStream) => {
+                    videoOverlay.classList.add('hidden');
+                    videoElement.srcObject = remoteStream;
+                    updateStatusBadge('Conectado - Assistindo', 'emerald');
+
+                    // Tenta reproduzir com áudio; se o navegador bloquear, muta e mostra botão
+                    videoElement.muted = false;
+                    videoElement.play().catch(() => {
+                        videoElement.muted = true;
+                        videoElement.play();
+                        document.getElementById('btn-unmute').classList.remove('hidden');
+                    });
+                });
+
+                call.on('close', () => {
+                    showToast('A transmissão foi encerrada.', 'info');
+                    leaveRoom();
+                });
+
+                call.on('error', () => {
+                    showToast('A conexão de vídeo foi interrompida.', 'error');
+                    leaveRoom();
+                });
+            });
+
+            peer.on('error', (err) => {
+                clearTimeout(connectionTimeout);
+                console.error('Erro PeerJS (Viewer):', err);
+                if (err.type === 'peer-unavailable') {
+                    showToast(`Sala "${code}" não encontrada. Verifique o código digitado.`, 'error');
+                } else {
+                    showToast('Erro de rede ao tentar entrar na sala.', 'error');
+                }
+                leaveRoom();
+            });
+
+            btnJoin.disabled = false;
+            btnJoin.classList.remove('opacity-70');
+        }
+
+        /**
+         * Ativa o som do vídeo caso o navegador tenha bloqueado autoplay com áudio
+         */
+        function unmuteVideo() {
+            videoElement.muted = false;
+            document.getElementById('btn-unmute').classList.add('hidden');
+        }
+
+        /**
+         * =====================================================================
+         * CONTROLES DA SALA (Copiar Código, Tela Cheia, Encerrar/Sair)
+         * =====================================================================
+         */
+        function copyRoomCode() {
+            if (!currentRoomCode) return;
+
+            // Uso de textarea temporário + execCommand para compatibilidade total em iframes
+            const tempInput = document.createElement('textarea');
+            tempInput.value = currentRoomCode;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            
+            try {
+                document.execCommand('copy');
+                const textCopy = document.getElementById('text-copy');
+                const btnCopy = document.getElementById('btn-copy-code');
+                
+                textCopy.textContent = 'Copiado!';
+                btnCopy.classList.add('bg-emerald-600', 'text-white');
+                btnCopy.classList.remove('bg-zinc-800', 'text-zinc-300');
+                
+                showToast(`Código ${currentRoomCode} copiado para a área de transferência!`, 'success');
+
+                setTimeout(() => {
+                    textCopy.textContent = 'Copiar';
+                    btnCopy.classList.remove('bg-emerald-600', 'text-white');
+                    btnCopy.classList.add('bg-zinc-800', 'text-zinc-300');
+                }, 2500);
+            } catch (err) {
+                showToast('Não foi possível copiar automaticamente.', 'error');
+            } finally {
+                document.body.removeChild(tempInput);
+            }
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                if (videoWrapper.requestFullscreen) {
+                    videoWrapper.requestFullscreen().catch(() => {
+                        showToast('Não foi possível ativar a tela cheia.', 'warning');
+                    });
+                } else if (videoElement.webkitEnterFullscreen) {
+                    videoElement.webkitEnterFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        function leaveRoom() {
+            // Para todas as faixas de mídia locais (encerra ícone de compartilhamento do navegador)
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+
+            // Fecha conexões de espectadores (se Host)
+            activeViewers.forEach(conn => {
+                try { conn.close(); } catch (e) {}
+            });
+            activeViewers.clear();
+            updateViewersCounter();
+
+            // Fecha conexões (se Viewer)
+            if (currentMediaCall) {
+                try { currentMediaCall.close(); } catch (e) {}
+                currentMediaCall = null;
+            }
+            if (hostDataConnection) {
+                try { hostDataConnection.close(); } catch (e) {}
+                hostDataConnection = null;
+            }
+
+            // Destrói instância do PeerJS
+            if (peer) {
+                try { peer.destroy(); } catch (e) {}
+                peer = null;
+            }
+
+            // Limpa player de vídeo
+            videoElement.srcObject = null;
+            document.getElementById('btn-unmute').classList.add('hidden');
+            
+            // Sai do modo tela cheia se estiver ativo
+            if (document.fullscreenElement && document.exitFullscreen) {
+                document.exitFullscreen().catch(() => {});
+            }
+
+            // Reseta UI para tela inicial
+            currentRoomCode = '';
+            isHost = false;
+            roomView.classList.add('hidden');
+            roomView.classList.remove('flex');
+            homeView.classList.remove('hidden');
+            
+            globalStatusBadge.classList.add('hidden');
+            globalStatusBadge.classList.remove('flex');
+            document.getElementById('room-code-input').value = '';
+        }
+
+        // Garante limpeza das conexões ao fechar ou recarregar a página
+        window.addEventListener('beforeunload', () => {
+            if (peer || localStream) {
+                leaveRoom();
+            }
+        });
+    </script>
+</body>
+</html>
